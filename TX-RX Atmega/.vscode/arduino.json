@@ -1,0 +1,5 @@
+{
+    "board": "arduino:avr:uno",
+    "sketch": "TX-RX Atmega.ino",
+    "port": "COM4"
+}
