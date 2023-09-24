@@ -1,0 +1,6 @@
+{
+    "configuration": "cpu=atmega2560",
+    "board": "arduino:avr:mega",
+    "sketch": "Arduino_RF_Controller.ino",
+    "port": "COM12"
+}
