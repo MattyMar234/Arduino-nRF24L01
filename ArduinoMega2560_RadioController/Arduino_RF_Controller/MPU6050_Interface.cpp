@@ -37,8 +37,11 @@ boolean MPU6050_Interface::init()
         } 
     }
     
+    mpu6050 = new MPU6050(Wire);
+    //this->mpu6050Found = mpu6050.begin();
+    
 
-    /*this->mpu6050Found = mpu6050.begin(MPU6050_SCALE_2000DPS, MPU6050_RANGE_2G);
+    //this->mpu6050Found = mpu6050.begin(MPU6050_SCALE_2000DPS, MPU6050_RANGE_2G);
 
     if(!this->mpu6050Found) {
         if(GlobalVariable::debugportAvailable) 
@@ -52,8 +55,9 @@ boolean MPU6050_Interface::init()
             setDefaoultSettings();
     }
 
-    mpu6050.calibrateGyro();
-    mpu6050.setThreshold(3);*/
+    //mpu6050.calcGyroOffsets(true);
+    //mpu6050.calibrateGyro();
+    //mpu6050.setThreshold(3);
 }
 
 boolean MPU6050_Interface::loadSettings()
@@ -71,7 +75,7 @@ boolean MPU6050_Interface::setDefaoultSettings()
 
 void MPU6050_Interface::dumpSettings()
 {
-    DebugPort.print(F(" > Sleep Mode:        "));
+    /*DebugPort.print(F(" > Sleep Mode:        "));
     DebugPort.println(mpu6050.getSleepEnabled() ? F("Enabled") : F("Disabled"));
     
     DebugPort.print(F(" > Clock Source:      "));
@@ -101,5 +105,5 @@ void MPU6050_Interface::dumpSettings()
     DebugPort.print(mpu6050.getGyroOffsetY());
     DebugPort.print(F(" / "));
     DebugPort.println(mpu6050.getGyroOffsetZ());
-    DebugPort.println();
+    DebugPort.println();*/
 }

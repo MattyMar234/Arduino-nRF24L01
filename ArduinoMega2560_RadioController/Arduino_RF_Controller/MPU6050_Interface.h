@@ -1,6 +1,6 @@
 #pragma once
 
-#include <MPU6050.h>
+#include <MPU6050_tockn.h>
 #include <Arduino.h>
 #include "globalVariable.h"
 #include "CardSD.h"
@@ -10,7 +10,7 @@
 class MPU6050_Interface
 {
     private:
-        MPU6050 mpu6050;
+        MPU6050 *mpu6050;
         boolean mpu6050Found; 
         SD_Card* cardSD;
 

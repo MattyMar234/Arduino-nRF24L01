@@ -2,9 +2,13 @@
 #define BUTTON_H
 
 #include <arduino.h>
-#define Bt_FALLING 1
-#define Bt_RISING 2
-#define Bt_CHANGE 0
+#include "MyUtility.h"
+
+#define BT_FALLING 1
+#define BT_RISING 2
+#define BT_CHANGE 0
+
+
 
 
 class ToggleButton
@@ -30,7 +34,7 @@ class ToggleButton
         void setPin(uint8_t pin);
         void setDebounce_time(unsigned long debounce_time);
         unsigned long getDebounce_time();
-        bool ButtonFunctionAvailable();
+        bool isButtonFunctionAvailable();
 
 };
 
