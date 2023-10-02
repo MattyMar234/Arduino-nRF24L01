@@ -1,0 +1,6 @@
+{
+    "board": "arduino:avr:uno",
+    "sketch": "TX-RX_Atmega.ino",
+    "programmer": "arduinoasispatmega32u4",
+    "port": "COM10"
+}
