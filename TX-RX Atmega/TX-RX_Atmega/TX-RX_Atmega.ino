@@ -7,8 +7,8 @@
 #include "MyUtility.h"
 
 //#define DEBUG
-#define AS_TRANSMITTER
-//#define AS_RECEIVER
+//#define AS_TRANSMITTER
+#define AS_RECEIVER
 
 #if defined(AS_TRANSMITTER) && defined(AS_RECEIVER)
   #error Can't be both transmitter and receiver
@@ -31,14 +31,15 @@
   #define CSN_PIN 10
   #define CE_PIN 8
 #else
-  #define STATUS_LED_PIN 3
-  #define LEFT_RELAY_PIN 4
-  #define RIGHT_RELAY_PIN 5
-  #define FORWARD_RELAY_PIN 6 
-  #define BACKWORD_RELAY_PIN 7
+  #define CONNECTION_LOST_LED_PIN 9
+  #define STATUS_LED_PIN 7
+  #define LEFT_RELAY_PIN 3
+  #define RIGHT_RELAY_PIN 4
+  #define FORWARD_RELAY_PIN 5 
+  #define BACKWORD_RELAY_PIN 6
   #define CSN_PIN 10
   #define CE_PIN 8
-  #define CONNECTION_LOST_LED_PIN 9
+  #define NRF_IRQ_PIN 2
 #endif
 
 #define NO_BLINK_LED_SEQUENZE 0
@@ -65,32 +66,46 @@ typedef struct payloadPacket
 
   unsigned long lastPacket_sended_time = millis();
 
-  const uint8_t pins[][2] PROGMEM = {
-    {LEFT_BUTTON_PIN, INPUT}, 
-    {RIGHT_BUTTON_PIN, INPUT},
-    {FORWARD_BUTTON_PIN, INPUT},
-    {BACKWORD_BUTTON_PIN, INPUT},
-    {STATUS_LED_PIN, OUTPUT},
-    {NRF_IRQ_PIN, INPUT}
+  const uint8_t pins[] = {
+    LEFT_BUTTON_PIN,
+    RIGHT_BUTTON_PIN,
+    FORWARD_BUTTON_PIN,
+    BACKWORD_BUTTON_PIN,
+    STATUS_LED_PIN,
+    NRF_IRQ_PIN
   };
+
+  const uint8_t pins_mode[] = {
+    INPUT, INPUT, INPUT, INPUT, OUTPUT, INPUT
+  };
+
+
+
 
 #else
   const uint8_t READING_PIPE[] = {NODE0_ADDRESS}; //leggo dal canale del nodo 0
   const uint8_t WRITING_PIPE[] = {NODE1_ADDRESS}; //scrivo sul mio canale
 
-  const uint8_t pins[][2] PROGMEM = {
-    {LEFT_RELAY_PIN, INPUT}, 
-    {RIGHT_RELAY_PIN, INPUT},
-    {FORWARD_RELAY_PIN, INPUT},
-    {BACKWORD_RELAY_PIN, INPUT},
-    {STATUS_LED_PIN, OUTPUT},
-    {CONNECTION_LOST_LED_PIN, OUTPUT}
+  unsigned long lastPacket_recived_time = millis();
+  
+  const uint8_t pins[] = {
+    LEFT_RELAY_PIN,
+    RIGHT_RELAY_PIN,
+    FORWARD_RELAY_PIN,
+    BACKWORD_RELAY_PIN,
+    STATUS_LED_PIN,
+    CONNECTION_LOST_LED_PIN,
+    NRF_IRQ_PIN
+  };
+
+  const uint8_t pins_mode[] = {
+    OUTPUT, OUTPUT, OUTPUT, OUTPUT, OUTPUT, OUTPUT, INPUT
   };
 #endif
 
 
 uint8_t NRF_WrError_sequenze[]  = {1, 1, 0, 0, 1, 1, 0, 0};
-uint8_t NRF_error_sequenze[]    = {1, 1, 0, 0, 1, 1, 0, 0, 0, 0};
+uint8_t NRF_error_sequenze[]    = {1, 0, 1, 0, 0, 0, 0};
 uint8_t noError_sequenze[]      = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0};
 uint8_t noBlink_sequenze[]      = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
@@ -121,19 +136,18 @@ struct LED_Animations_
 
 boolean dataAvailable = false;
 boolean serialIsAvailable = false;
-long timerLED = 0;
+
 long timerPacket = 0;
 RF24 radio(CE_PIN, CSN_PIN);  // using pin 7 for the CE pin, and pin 8 for the CSN pin
 Packet packet;
 
 
-inline __attribute__((always_inline)) void RX_loop();
-inline __attribute__((always_inline)) void TX_loop();
 
 
 void setup() 
 {
-  noInterrupts();           // Disabilita tutti gli interrupt
+  // Disabilita tutti gli interrupt
+  noInterrupts();           
   setLED_Animation(NO_BLINK_LED_SEQUENZE);
 
   SPI.begin();
@@ -148,15 +162,13 @@ void setup()
     #endif
   }
   
-  for(int i = 0; i < (int)sizeof(pins)/sizeof(pins[0]); i++) 
+  for(int i = 0; i < (int)(sizeof(pins)/(sizeof(pins[0]))); i++) 
   {
-    pinMode(pins[i][0], pins[i][1]);
-    if(pins[i][1] == OUTPUT) {
-      digitalWrite(pins[i][0], LOW);
+    pinMode(pins[i], pins_mode[i]);
+    if(pins_mode[i] == OUTPUT) {
+      digitalWrite(pins[i], LOW);
     }
   }
-
-  
 
   //==================================================================//
   //impostazione TIMER1
@@ -223,9 +235,11 @@ void setup()
     radio.maskIRQ(1,0,1);                     // data sent interrupt and data failed interrupt
     radio.stopListening();                    // put radio in TX mode 
   #else
-    radio.startListening();   // put radio in RX mode
+    //attachInterrupt(digitalPinToInterrupt(NRF_IRQ_PIN), NRF_PacketReadyIRQ, RISING);
     //radio.maskIRQ(1,1,0);                     // data ready interrupt
-    //attachInterrupt(digitalPinToInterrupt(2), getPacketIRQ, RISING);
+    radio.maskIRQ(1,1,1);                     // data ready interrupt
+    radio.startListening();                   // put radio in RX mode
+    
   #endif
 
   
@@ -234,7 +248,12 @@ void setup()
     radio.printPrettyDetails(); // (larger) function that prints human readable data
   } 
   //==================================================================//
-  setLED_Animation(NO_BLINK_LED_SEQUENZE);
+  
+  #ifdef AS_TRANSMITTER
+    setLED_Animation(NO_BLINK_LED_SEQUENZE);
+  #else
+    setLED_Animation(NRF_CONNECTION_LOST_LED_SEQUENZE);
+  #endif
 }
 
 void loop() 
@@ -271,71 +290,97 @@ void NRF_transmitIRQ() {
     setLED_Animation(NRF_CONNECTION_LOST_LED_SEQUENZE);
   }
 }
+#else
+void NRF_PacketReadyIRQ() 
+{
+
+}
 #endif
 
 
-void getPacketIRQ() {
-  dataAvailable = true;
-}
+
 
 inline __attribute__((always_inline))
 void setLED_Animation(uint8_t index) {
   if(index > sizeof(LED_Animations.animations)/sizeof(LED_Animations.animations[0])) {
-    if(serialIsAvailable)
-      Serial.println(F("Animation index out of range"));    
+    //if(serialIsAvailable)
+    //  Serial.println(F("Animation index out of range"));    
     return;
   }
 
   LED_Animations.selectedAnimation = index;
   
-  if(serialIsAvailable) {
+  /*if(serialIsAvailable) {
     Serial.print(F("Animation index: "));
     Serial.println(index);
-  }
+  }*/
 }
 
 #ifdef AS_RECEIVER
 inline __attribute__((always_inline))
-void RX_loop() {
-  uint8_t pipe;
-    dataAvailable = false;
-    // is there a payload? get the pipe number that recieved it
-    if (radio.available(&pipe)) 
-    {              
-      timerPacket = millis(); //mi salvo il momento in cui ho ricevuto l'ultimo pacchetto
-      uint8_t *p = (uint8_t *) &packet;
-      uint8_t bytes = radio.getPayloadSize();  // get the size of the payload
-      radio.read(&packet, bytes);             // fetch payload from FIFO
+void RX_loop() 
+{
+  static uint8_t *p = (uint8_t *) &packet;
+  static uint8_t pipe;
+  static uint8_t bytes;
+  //disabilito gli interrupt per evitare problemi
+  //noInterrupts();
 
-      for(int i = 0; i < (int)sizeof(pins)/sizeof(pins[0]); i++) {
-        //digitalWrite(pins[i], p[i]);
-      }
-      //digitalWrite(STATUS_LED_PIN, LOW);
+  //se è passato 1s dall'ultimo pacchetto ricevuto
+  if(millis() - lastPacket_recived_time >= 1000) 
+  {
+    //spengo tutti i relays
+    digitalWrite(LEFT_RELAY_PIN,     LOW);
+    digitalWrite(RIGHT_RELAY_PIN,    LOW);
+    digitalWrite(FORWARD_RELAY_PIN,  LOW);
+    digitalWrite(BACKWORD_RELAY_PIN, LOW);
 
-      #ifdef DEBUG
-        Serial.print(F("Received "));
-        Serial.print(bytes);  // print the size of the payload
-        Serial.print(F(" bytes on pipe "));
-        Serial.print(pipe);  // print the pipe number
-        Serial.print(F(": "));
-      
-        for(int i = 0; i < (int)sizeof(pins)/sizeof(pins[0]); i++) {
-          Serial.print(p[i]);
-          Serial.print(F(" "));
-        }
-        Serial.println();
-      #endif
+    //accendo il led di "connessione persa" e imposto il lampeggio del LED distatus
+    setLED_Animation(NRF_CONNECTION_LOST_LED_SEQUENZE);
+    digitalWrite(CONNECTION_LOST_LED_PIN, HIGH);
+
+    //interrupts();
+
+    //aspetto finche non ricevo un nuovo pacchetto
+    while(!radio.available(&pipe));
+    lastPacket_recived_time = millis();
+
+    //aspengo il led di "connessione persa"
+    digitalWrite(CONNECTION_LOST_LED_PIN, LOW);
+  }
+  else if(radio.available(&pipe))
+  {
+    bytes = radio.getPayloadSize();         // get the size of the payload
+    radio.read(&packet, bytes);             // fetch payload from FIFO
+  
+    digitalWrite(LEFT_RELAY_PIN,     *(p + 0));
+    digitalWrite(RIGHT_RELAY_PIN,    *(p + 1));
+    digitalWrite(FORWARD_RELAY_PIN,  *(p + 2));
+    digitalWrite(BACKWORD_RELAY_PIN, *(p + 3));
+
+    if(LED_Animations.selectedAnimation != NO_ERROR_AND_CONNECTED_LED_SEQUENZE) {
+      setLED_Animation(NO_ERROR_AND_CONNECTED_LED_SEQUENZE);
     }
-    //se è passato un secondo dall'umtimo pacchetto
-    //spengo tutto e attivo il LED di errore
-    else if(millis() - timerPacket >= 1000 )
-    {
+
+    lastPacket_recived_time = millis();
+
+    if(serialIsAvailable) {
+      Serial.print(F("Received "));
+      Serial.print(bytes);  // print the size of the payload
+      Serial.print(F(" bytes on pipe "));
+      Serial.print(pipe);  // print the pipe number
+      Serial.print(F(": "));
+    
       for(int i = 0; i < (int)sizeof(pins)/sizeof(pins[0]); i++) {
-        //digitalWrite(pins[i], LOW);
+        Serial.print(p[i]);
+        Serial.print(F(" "));
       }
-      //digitalWrite(STATUS_LED_PIN, HIGH);
-      delay(100);
+      Serial.println();
     }
+  }
+  else {
+    delay(50);
+  }
 }
 #endif
 
