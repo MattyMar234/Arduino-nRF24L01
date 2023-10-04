@@ -5,10 +5,9 @@
 #include <SPI.h>
 
 
-
 //#define DEBUG
-//#define AS_TRANSMITTER
-#define AS_RECEIVER
+#define AS_TRANSMITTER
+//#define AS_RECEIVER
 
 #if defined(AS_TRANSMITTER) && defined(AS_RECEIVER)
   #error Can't be both transmitter and receiver
@@ -222,7 +221,7 @@ void setup()
   
   radio.setPALevel(RF24_PA_MAX);              // RF24_PA_MAX is default.
   radio.setChannel(CHANNEL);                  // set the RF channel 
-  radio.setPayloadSize(sizeof(Packet));       // size of the payload 
+  //radio.setPayloadSize(sizeof(Packet));     // size of the payload 
   radio.setAutoAck(true);                     // enable auto ack
   radio.enableAckPayload();                   // enable ack payload
   radio.setDataRate(RF24_1MBPS);              // set the data rate
@@ -259,7 +258,7 @@ void setup()
 void loop() 
 {
   #ifdef AS_TRANSMITTER
-    if(millis() - timerPacket >=  40) {
+    if(millis() - timerPacket >=  60) {
       timerPacket = millis();
       TX_loop();
     }
@@ -320,7 +319,6 @@ void setLED_Animation(uint8_t index) {
 inline __attribute__((always_inline))
 void RX_loop() 
 {
-  static uint8_t *p = (uint8_t *) &packet;
   static uint8_t pipe;
   static uint8_t bytes;
   //disabilito gli interrupt per evitare problemi
@@ -342,40 +340,64 @@ void RX_loop()
     //interrupts();
 
     //aspetto finche non ricevo un nuovo pacchetto
-    while(!radio.available(&pipe));
+    if(serialIsAvailable) {
+      Serial.println(F("Waiting for transmitter connection"));
+    }
+      
+    
+    while(true) {
+      if(radio.available(&pipe)) {
+        if(pipe == 1) {
+          break;
+        }
+        else {
+          static uint8_t buffer[32];
+          bytes = radio.getPayloadSize();
+          radio.read(&buffer, bytes);
+        }
+      }
+        
+    }
+
+    if(serialIsAvailable) {
+      Serial.print(F("transmitter connected on pipe "));
+      Serial.println(pipe);
+    }
+    
     lastPacket_recived_time = millis();
 
     //aspengo il led di "connessione persa"
     digitalWrite(CONNECTION_LOST_LED_PIN, LOW);
   }
-  else if(radio.available(&pipe))
+  else if(radio.available(&pipe) && pipe == 1)
   {
+    lastPacket_recived_time = millis();
     bytes = radio.getPayloadSize();         // get the size of the payload
     radio.read(&packet, bytes);             // fetch payload from FIFO
   
-    digitalWrite(LEFT_RELAY_PIN,     *(p + 0));
-    digitalWrite(RIGHT_RELAY_PIN,    *(p + 1));
-    digitalWrite(FORWARD_RELAY_PIN,  *(p + 2));
-    digitalWrite(BACKWORD_RELAY_PIN, *(p + 3));
+    digitalWrite(LEFT_RELAY_PIN,     packet.sw1);
+    digitalWrite(RIGHT_RELAY_PIN,    packet.sw2);
+    digitalWrite(FORWARD_RELAY_PIN,  packet.sw3);
+    digitalWrite(BACKWORD_RELAY_PIN, packet.sw4);
 
     if(LED_Animations.selectedAnimation != NO_ERROR_AND_CONNECTED_LED_SEQUENZE) {
       setLED_Animation(NO_ERROR_AND_CONNECTED_LED_SEQUENZE);
+      digitalWrite(CONNECTION_LOST_LED_PIN, LOW);
     }
-
-    lastPacket_recived_time = millis();
 
     if(serialIsAvailable) {
       Serial.print(F("Received "));
       Serial.print(bytes);  // print the size of the payload
       Serial.print(F(" bytes on pipe "));
       Serial.print(pipe);  // print the pipe number
-      Serial.print(F(": "));
-    
-      for(int i = 0; i < (int)sizeof(pins)/sizeof(pins[0]); i++) {
-        Serial.print(p[i]);
-        Serial.print(F(" "));
-      }
-      Serial.println();
+      Serial.print(F("| sw1 "));
+      Serial.print(packet.sw1);
+      Serial.print(F(" sw2 "));
+      Serial.print(packet.sw2);
+      Serial.print(F(" sw3 "));
+      Serial.print(packet.sw3);
+      Serial.print(F(" sw4 "));
+      Serial.println(packet.sw4);
     }
   }
   else {
@@ -388,13 +410,13 @@ void RX_loop()
 inline __attribute__((always_inline))
 void TX_loop() 
 {
-  static uint8_t *p = (uint8_t *) &packet;
+  //static uint8_t *p = (uint8_t *) &packet;
 
   //leggo i valori dei pulsanti e li salvo in packet
-  *(p + 0) = digitalRead(FORWARD_BUTTON_PIN);
-  *(p + 1) = digitalRead(BACKWORD_BUTTON_PIN);
-  *(p + 2) = digitalRead(LEFT_BUTTON_PIN);
-  *(p + 3) = digitalRead(RIGHT_BUTTON_PIN);
+  packet.sw1 = digitalRead(FORWARD_BUTTON_PIN);
+  packet.sw2 = digitalRead(BACKWORD_BUTTON_PIN);
+  packet.sw3 = digitalRead(LEFT_BUTTON_PIN);
+  packet.sw4 = digitalRead(RIGHT_BUTTON_PIN);
 
   //invio i dati e cronometro il tempo
   unsigned long start_timer = micros();                // start the timer
@@ -418,10 +440,15 @@ void TX_loop()
       Serial.print(end_timer - start_timer);        // print the timer result
       Serial.print(F(" us. Sent: "));
 
-      for(int i = 0; i < (int)sizeof(pins)/sizeof(pins[0]); i++) {
-        Serial.print(p[i]);
-        Serial.print(F(" "));
-      }
+     
+      Serial.print(F(" sw1: "));
+      Serial.print(packet.sw1);
+      Serial.print(F(" | sw2: "));
+      Serial.print(packet.sw2);
+      Serial.print(F(" | sw3: "));
+      Serial.print(packet.sw3);
+      Serial.print(F(" | sw4: "));
+      Serial.print(packet.sw4);
       Serial.println();
     }
     else {
