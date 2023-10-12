@@ -1,13 +1,14 @@
 #include <nRF24L01.h>
-#include <printf.h>
-#include <RF24.h>
 #include <RF24_config.h>
+#include <RF24.h>
 #include <SPI.h>
+#include <printf.h>
 
 
 //#define DEBUG
-#define AS_TRANSMITTER
-//#define AS_RECEIVER
+//#define AS_TRANSMITTER
+#define AS_RECEIVER
+#define ENABLE_LIMIT_SW_IRQ
 
 #if defined(AS_TRANSMITTER) && defined(AS_RECEIVER)
   #error Can't be both transmitter and receiver
@@ -16,28 +17,48 @@
   #error Must be a transmitter or a receiver
 #endif
 
+
+
+////////////////////////////////////////////////////////////////
+//  Costanti
+////////////////////////////////////////////////////////////////
 #define NODE0_ADDRESS "00001"
 #define NODE1_ADDRESS "00002"
 #define CHANNEL 0x60
 
 #ifdef AS_TRANSMITTER
-  #define NRF_IRQ_PIN 2
+  //LED
   #define STATUS_LED_PIN 3
+
+  //BT
   #define LEFT_BUTTON_PIN 4
   #define RIGHT_BUTTON_PIN 5
   #define FORWARD_BUTTON_PIN 6 
   #define BACKWORD_BUTTON_PIN 7
+
+  //NRF
+  #define NRF_IRQ_PIN 2
   #define CSN_PIN 10
   #define CE_PIN 8
 #else
+  //LED
   #define CONNECTION_LOST_LED_PIN 9
-  #define STATUS_LED_PIN 7
-  #define LEFT_RELAY_PIN 3
-  #define RIGHT_RELAY_PIN 4
-  #define FORWARD_RELAY_PIN 5 
-  #define BACKWORD_RELAY_PIN 6
+  #define STATUS_LED_PIN A0
+
+  //LIMIT_SW
+  #define LEFT_LIMIT_SW A1
+  #define RIGHT_LIMIT_SW A2
+  #define LIMIT_SW_IRQ_PIN 3
+
+  //RELAY
+  #define LEFT_RELAY_PIN 4
+  #define RIGHT_RELAY_PIN 5
+  #define FORWARD_RELAY_PIN 6 
+  #define BACKWORD_RELAY_PIN 7
+
+  //NRF
   #define CSN_PIN 10
-  #define CE_PIN 8
+  #define CE_PIN 9
   #define NRF_IRQ_PIN 2
 #endif
 
@@ -47,25 +68,16 @@
 #define NO_ERROR_AND_CONNECTED_LED_SEQUENZE 3
 
 
-
-typedef struct payloadPacket 
-{
-  uint8_t sw1;
-  uint8_t sw2;
-  uint8_t sw3;
-  uint8_t sw4;
-  //uint8_t status;
-
-} Packet;
-
-
+////////////////////////////////////////////////////////////////
+//  Varibili
+////////////////////////////////////////////////////////////////
 #ifdef AS_TRANSMITTER
   const uint8_t READING_PIPE[] = {NODE1_ADDRESS}; //leggo dal canale del nodo 1
   const uint8_t WRITING_PIPE[] = {NODE0_ADDRESS}; //scrivo sul mio canale
 
   unsigned long lastPacket_sended_time = millis();
 
-  const uint8_t pins[] = {
+  const uint8_t pins[] PROGMEM = {
     LEFT_BUTTON_PIN,
     RIGHT_BUTTON_PIN,
     FORWARD_BUTTON_PIN,
@@ -74,12 +86,9 @@ typedef struct payloadPacket
     NRF_IRQ_PIN
   };
 
-  const uint8_t pins_mode[] = {
+  const uint8_t pins_mode[] PROGMEM = {
     INPUT, INPUT, INPUT, INPUT, OUTPUT, INPUT
   };
-
-
-
 
 #else
   const uint8_t READING_PIPE[] = {NODE0_ADDRESS}; //leggo dal canale del nodo 0
@@ -87,32 +96,43 @@ typedef struct payloadPacket
 
   unsigned long lastPacket_recived_time = millis();
   
-  const uint8_t pins[] = {
+  const uint8_t pins[] PROGMEM = {
     LEFT_RELAY_PIN,
     RIGHT_RELAY_PIN,
     FORWARD_RELAY_PIN,
     BACKWORD_RELAY_PIN,
     STATUS_LED_PIN,
     CONNECTION_LOST_LED_PIN,
-    NRF_IRQ_PIN
+    NRF_IRQ_PIN,
+    LEFT_LIMIT_SW,
+    RIGHT_LIMIT_SW
   };
 
-  const uint8_t pins_mode[] = {
-    OUTPUT, OUTPUT, OUTPUT, OUTPUT, OUTPUT, OUTPUT, INPUT
+  const uint8_t pins_mode[] PROGMEM = {
+    OUTPUT, OUTPUT, OUTPUT, OUTPUT, OUTPUT, OUTPUT, INPUT, INPUT, INPUT
   };
 #endif
 
 
-uint8_t NRF_WrError_sequenze[]  = {1, 1, 0, 0, 1, 1, 0, 0};
-uint8_t NRF_error_sequenze[]    = {1, 0, 1, 0, 0, 0, 0};
-uint8_t noError_sequenze[]      = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0};
-uint8_t noBlink_sequenze[]      = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+const uint8_t NRF_WrError_sequenze[] = {1, 1, 0, 0, 1, 1, 0, 0};
+const uint8_t NRF_error_sequenze[]   = {1, 0, 1, 0, 0, 0, 0};
+const uint8_t noError_sequenze[]     = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0};
+const uint8_t noBlink_sequenze[]     = {0, 0};
+
+//Pacchetto dati
+typedef struct payloadPacket {
+  uint8_t sw1;
+  uint8_t sw2;
+  uint8_t sw3;
+  uint8_t sw4;
+} 
+Packet;
 
 
 typedef struct Animation_ {
   uint8_t stepIndex;
   uint8_t stepCount;
-  uint8_t* LED_animation_Array;
+  const uint8_t* LED_animation_Array;
 }
 LED_Animation;
 
@@ -128,17 +148,15 @@ struct LED_Animations_
     {0, sizeof(NRF_WrError_sequenze)/sizeof(NRF_WrError_sequenze[0]), &NRF_WrError_sequenze[0]},
     {0, sizeof(noError_sequenze)/sizeof(noError_sequenze[0])        , &noError_sequenze[0]},
   };
+} 
+LED_Animations;
 
-} LED_Animations;
 
-
-
-boolean dataAvailable = false;
-boolean serialIsAvailable = false;
-
-long timerPacket = 0;
 RF24 radio(CE_PIN, CSN_PIN);  // using pin 7 for the CE pin, and pin 8 for the CSN pin
 Packet packet;
+
+boolean IsSerialAvailable = false;
+long timerPacket = 0;
 
 
 
@@ -149,28 +167,50 @@ void setup()
   noInterrupts();           
   setLED_Animation(NO_BLINK_LED_SEQUENZE);
 
+  //////////////////////////////////////////////////////////////////////
+  //inizilizzazione periferiche
+  //////////////////////////////////////////////////////////////////////
   SPI.begin();
   Serial.begin(115200);
-  serialIsAvailable = Serial ? true : false;
+  IsSerialAvailable = Serial;
 
-  if(serialIsAvailable) {
+  if(IsSerialAvailable) {
     #ifdef AS_TRANSMITTER
       Serial.println(F("working as transmitter"));
     #else
       Serial.println(F("working as receiver"));
     #endif
   }
+
+  //////////////////////////////////////////////////////////////////////
+  //inizilizzazione I/0
+  //////////////////////////////////////////////////////////////////////
   
-  for(int i = 0; i < (int)(sizeof(pins)/(sizeof(pins[0]))); i++) 
+  for(int i = 0; i < (int)(sizeof(pins)/(sizeof(pins[0]))); i++)
   {
-    pinMode(pins[i], pins_mode[i]);
+    pinMode(pgm_read_byte(&pins[i]), pgm_read_byte(&pins_mode[i]));
     if(pins_mode[i] == OUTPUT) {
       digitalWrite(pins[i], LOW);
     }
   }
 
-  //==================================================================//
-  //impostazione TIMER1
+  //defined(ENABLE_LIMIT_SW_IRQ) && defined(AS_RECEIVER)
+  #ifdef AS_RECEIVER
+    //attachInterrupt(digitalPinToInterrupt(NRF_IRQ_PIN), NRF_PacketReadyIRQ, RISING); 
+    #ifdef ENABLE_LIMIT_SW_IRQ
+      attachInterrupt(digitalPinToInterrupt(LIMIT_SW_IRQ_PIN), LimitSW_interrupt, RISING);
+    #endif
+  #endif
+
+  #ifdef AS_TRANSMITTER
+    attachInterrupt(digitalPinToInterrupt(NRF_IRQ_PIN), NRF_transmitIRQ, RISING);
+  #endif
+
+
+  //////////////////////////////////////////////////////////////////////
+  //configurazione TIMER1
+  //////////////////////////////////////////////////////////////////////
+
   TCCR1A = 0;               // Resetta il registro di controllo A
   TCCR1B = 0;               // Resetta il registro di controllo B
   TCNT1 = 0;                // Inizializza il contatore del timer 1 a 0
@@ -188,37 +228,42 @@ void setup()
   
   // Abilita il timer 1 con il prescaler 64
   TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10); // WGM12 abilita il timer CTC mode, CS11 e CS10 abilitano il prescaler a 64
+  
+  //////////////////////////////////////////////////////////////////////
 
-  interrupts();              // Abilita gli interrupt globali
-  //==================================================================//
+  interrupts(); // Abilita gli interrupt globali              
 
-
-  //==================================================================//
-  //inizializzazione NRF24L01
+  //////////////////////////////////////////////////////////////////////
+  // inizializzazione NRF24L01
+  //////////////////////////////////////////////////////////////////////
 
   if (!radio.begin()) {
     setLED_Animation(NRF_ERROR_LED_SEQUENZE);
     do {
-      if(serialIsAvailable) 
+      if(IsSerialAvailable) 
         Serial.println(F("radio hardware is not responding!!"));
       
       delay(1000);
 
-      if(serialIsAvailable) 
+      if(IsSerialAvailable) 
         Serial.println(F("new attempt"));
     }
     while(!radio.begin());
     setLED_Animation(NO_BLINK_LED_SEQUENZE);
   }
 
-  if(serialIsAvailable) {
+  if(IsSerialAvailable) {
     Serial.println(F("radio hardware detected"));
     Serial.print(F("READING_PIPE: "));
     Serial.println((long)READING_PIPE, HEX);
     Serial.print(F("WRITING_PIPE: "));
     Serial.println((long)WRITING_PIPE, HEX);
   }
-  
+
+  //////////////////////////////////////////////////////////////////////
+  // configurazione NRF24L01
+  //////////////////////////////////////////////////////////////////////
+
   radio.setPALevel(RF24_PA_MAX);              // RF24_PA_MAX is default.
   radio.setChannel(CHANNEL);                  // set the RF channel 
   //radio.setPayloadSize(sizeof(Packet));     // size of the payload 
@@ -230,11 +275,10 @@ void setup()
   radio.openReadingPipe(1, READING_PIPE);     // using pipe != 0
 
   #ifdef AS_TRANSMITTER
-    attachInterrupt(digitalPinToInterrupt(NRF_IRQ_PIN), NRF_transmitIRQ, RISING);
+    
     radio.maskIRQ(1,0,1);                     // data sent interrupt and data failed interrupt
     radio.stopListening();                    // put radio in TX mode 
   #else
-    //attachInterrupt(digitalPinToInterrupt(NRF_IRQ_PIN), NRF_PacketReadyIRQ, RISING);
     //radio.maskIRQ(1,1,0);                     // data ready interrupt
     radio.maskIRQ(1,1,1);                     // data ready interrupt
     radio.startListening();                   // put radio in RX mode
@@ -242,12 +286,12 @@ void setup()
   #endif
 
   
-  if(serialIsAvailable) {
+  if(IsSerialAvailable) {
     printf_begin();             // needed only once for printing details
     radio.printPrettyDetails(); // (larger) function that prints human readable data
-  } 
-  //==================================================================//
-  
+  }
+  //////////////////////////////////////////////////////////////////////
+
   #ifdef AS_TRANSMITTER
     setLED_Animation(NO_BLINK_LED_SEQUENZE);
   #else
@@ -264,6 +308,14 @@ void loop()
     }
   #else
     RX_loop();  
+
+    //se si attivano i fine corsa
+    if(digitalRead(LEFT_LIMIT_SW) && packet.sw1)
+      digitalWrite(LEFT_RELAY_PIN, LOW);
+
+    if(digitalRead(RIGHT_LIMIT_SW) && packet.sw2)
+      digitalWrite(RIGHT_RELAY_PIN, LOW);
+
   #endif
 }
 
@@ -283,24 +335,32 @@ ISR(TIMER1_COMPA_vect)
 }
 
 #ifdef AS_TRANSMITTER
-void NRF_transmitIRQ() {
-  //se è passato 1s dall'ultimo pacchetto ricevuto
-  if(millis() - lastPacket_sended_time  >= 1000) {
-    setLED_Animation(NRF_CONNECTION_LOST_LED_SEQUENZE);
+  void NRF_transmitIRQ() {
+    //se è passato 1s dall'ultimo pacchetto ricevuto
+    if(millis() - lastPacket_sended_time  >= 1000) {
+      setLED_Animation(NRF_CONNECTION_LOST_LED_SEQUENZE);
+    }
   }
-}
 #else
-void NRF_PacketReadyIRQ() 
-{
+  void NRF_PacketReadyIRQ() 
+  {
 
-}
+  }
+
+  #if defined(ENABLE_LIMIT_SW_IRQ)
+    void LimitSW_interrupt() {
+      digitalWrite(RIGHT_RELAY_PIN, LOW);
+      digitalWrite(LEFT_RELAY_PIN, LOW);
+    }
+  #endif
 #endif
 
 
 
 
 inline __attribute__((always_inline))
-void setLED_Animation(uint8_t index) {
+void setLED_Animation(uint8_t index) 
+{
   if(index > sizeof(LED_Animations.animations)/sizeof(LED_Animations.animations[0])) {
     //if(serialIsAvailable)
     //  Serial.println(F("Animation index out of range"));    
@@ -340,7 +400,7 @@ void RX_loop()
     //interrupts();
 
     //aspetto finche non ricevo un nuovo pacchetto
-    if(serialIsAvailable) {
+    if(IsSerialAvailable) {
       Serial.println(F("Waiting for transmitter connection"));
     }
       
@@ -356,18 +416,17 @@ void RX_loop()
           radio.read(&buffer, bytes);
         }
       }
-        
     }
 
-    if(serialIsAvailable) {
+    if(IsSerialAvailable) {
       Serial.print(F("transmitter connected on pipe "));
       Serial.println(pipe);
     }
     
     lastPacket_recived_time = millis();
-
-    //aspengo il led di "connessione persa"
+    //spengo il led di "connessione persa"
     digitalWrite(CONNECTION_LOST_LED_PIN, LOW);
+
   }
   else if(radio.available(&pipe) && pipe == 1)
   {
@@ -375,8 +434,22 @@ void RX_loop()
     bytes = radio.getPayloadSize();         // get the size of the payload
     radio.read(&packet, bytes);             // fetch payload from FIFO
   
-    digitalWrite(LEFT_RELAY_PIN,     packet.sw1);
-    digitalWrite(RIGHT_RELAY_PIN,    packet.sw2);
+    //per evitare di fare entrambe le cose
+    if(packet.sw1 && packet.sw2) {
+        packet.sw1 = 0;
+        packet.sw2 = 0;
+    }
+
+    if(packet.sw3 && packet.sw4) {
+        packet.sw3 = 0;
+        packet.sw4 = 0;
+    }
+      
+    
+    //I fine corsa sono normalmente aperti => ho sempre 1
+    //se il fine corsa è chiuso ho 0 => setto il pin LOW
+    digitalWrite(LEFT_RELAY_PIN,   (digitalRead(LEFT_LIMIT_SW) ?  packet.sw1  : LOW));
+    digitalWrite(RIGHT_RELAY_PIN,  (digitalRead(RIGHT_LIMIT_SW) ? packet.sw2  : LOW));
     digitalWrite(FORWARD_RELAY_PIN,  packet.sw3);
     digitalWrite(BACKWORD_RELAY_PIN, packet.sw4);
 
@@ -385,7 +458,7 @@ void RX_loop()
       digitalWrite(CONNECTION_LOST_LED_PIN, LOW);
     }
 
-    if(serialIsAvailable) {
+    if(IsSerialAvailable) {
       Serial.print(F("Received "));
       Serial.print(bytes);  // print the size of the payload
       Serial.print(F(" bytes on pipe "));
@@ -401,7 +474,7 @@ void RX_loop()
     }
   }
   else {
-    delay(50);
+    delay(1);
   }
 }
 #endif
@@ -433,7 +506,7 @@ void TX_loop()
     }
   }
     
-  if(serialIsAvailable) {
+  if(IsSerialAvailable) {
     if (report) {
       Serial.print(F("Transmission successful! "));  // payload was delivered
       Serial.print(F("Time to transmit = "));
