@@ -231,7 +231,9 @@ void setup()
   
   //////////////////////////////////////////////////////////////////////
 
+
   interrupts(); // Abilita gli interrupt globali              
+
 
   //////////////////////////////////////////////////////////////////////
   // inizializzazione NRF24L01
@@ -239,6 +241,8 @@ void setup()
 
   if (!radio.begin()) {
     setLED_Animation(NRF_ERROR_LED_SEQUENZE);
+    
+    //ripeto finche non riesco a configurare/trovare il modulo
     do {
       if(IsSerialAvailable) 
         Serial.println(F("radio hardware is not responding!!"));
@@ -249,15 +253,14 @@ void setup()
         Serial.println(F("new attempt"));
     }
     while(!radio.begin());
+    
     setLED_Animation(NO_BLINK_LED_SEQUENZE);
   }
 
   if(IsSerialAvailable) {
     Serial.println(F("radio hardware detected"));
-    Serial.print(F("READING_PIPE: "));
-    Serial.println((long)READING_PIPE, HEX);
-    Serial.print(F("WRITING_PIPE: "));
-    Serial.println((long)WRITING_PIPE, HEX);
+    Serial.print(F("READING_PIPE: ")); Serial.println((long)READING_PIPE, HEX);
+    Serial.print(F("WRITING_PIPE: ")); Serial.println((long)WRITING_PIPE, HEX);
   }
 
   //////////////////////////////////////////////////////////////////////
@@ -275,7 +278,6 @@ void setup()
   radio.openReadingPipe(1, READING_PIPE);     // using pipe != 0
 
   #ifdef AS_TRANSMITTER
-    
     radio.maskIRQ(1,0,1);                     // data sent interrupt and data failed interrupt
     radio.stopListening();                    // put radio in TX mode 
   #else
@@ -287,11 +289,12 @@ void setup()
 
   
   if(IsSerialAvailable) {
-    printf_begin();             // needed only once for printing details
-    radio.printPrettyDetails(); // (larger) function that prints human readable data
+    printf_begin();                           // needed only once for printing details
+    radio.printPrettyDetails();               // (larger) function that prints human readable data
   }
   //////////////////////////////////////////////////////////////////////
 
+  //imposto lo stato base del led
   #ifdef AS_TRANSMITTER
     setLED_Animation(NO_BLINK_LED_SEQUENZE);
   #else
@@ -302,11 +305,13 @@ void setup()
 void loop() 
 {
   #ifdef AS_TRANSMITTER
+    //verifico se è giungto il momento di inviare i dati dei pulsanti
     if(millis() - timerPacket >=  60) {
       timerPacket = millis();
       TX_loop();
     }
   #else
+
     RX_loop();  
 
     //se si attivano i fine corsa
@@ -459,18 +464,12 @@ void RX_loop()
     }
 
     if(IsSerialAvailable) {
-      Serial.print(F("Received "));
-      Serial.print(bytes);  // print the size of the payload
-      Serial.print(F(" bytes on pipe "));
-      Serial.print(pipe);  // print the pipe number
-      Serial.print(F("| sw1 "));
-      Serial.print(packet.sw1);
-      Serial.print(F(" sw2 "));
-      Serial.print(packet.sw2);
-      Serial.print(F(" sw3 "));
-      Serial.print(packet.sw3);
-      Serial.print(F(" sw4 "));
-      Serial.println(packet.sw4);
+      Serial.print(F("Received "));         Serial.print(bytes);  // print the size of the payload
+      Serial.print(F(" bytes on pipe "));   Serial.print(pipe);  // print the pipe number
+      Serial.print(F("| sw1 "));  Serial.print(packet.sw1);
+      Serial.print(F(" sw2 "));   Serial.print(packet.sw2);
+      Serial.print(F(" sw3 "));   Serial.print(packet.sw3);
+      Serial.print(F(" sw4 "));   Serial.println(packet.sw4);
     }
   }
   else {
