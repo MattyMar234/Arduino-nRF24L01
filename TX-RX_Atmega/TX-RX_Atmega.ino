@@ -42,7 +42,7 @@
   #define CE_PIN 8
 #else
   //LED
-  #define CONNECTION_LOST_LED_PIN 9
+  #define CONNECTION_LOST_LED_PIN A3
   #define STATUS_LED_PIN A0
 
   //LIMIT_SW
@@ -77,13 +77,13 @@
 
   unsigned long lastPacket_sended_time = millis();
 
-  const uint8_t pins[] PROGMEM = {
-    LEFT_BUTTON_PIN,
-    RIGHT_BUTTON_PIN,
-    FORWARD_BUTTON_PIN,
-    BACKWORD_BUTTON_PIN,
-    STATUS_LED_PIN,
-    NRF_IRQ_PIN
+  const uint8_t pins[][2] PROGMEM = {
+    {LEFT_BUTTON_PIN, INPUT},
+    {RIGHT_BUTTON_PIN, INPUT},
+    {FORWARD_BUTTON_PIN, INPUT},
+    {BACKWORD_BUTTON_PIN, INPUT},
+    {STATUS_LED_PIN, OUTPUT},
+    {NRF_IRQ_PIN, INPUT},
   };
 
   const uint8_t pins_mode[] PROGMEM = {
@@ -96,20 +96,16 @@
 
   unsigned long lastPacket_recived_time = millis();
   
-  const uint8_t pins[] PROGMEM = {
-    LEFT_RELAY_PIN,
-    RIGHT_RELAY_PIN,
-    FORWARD_RELAY_PIN,
-    BACKWORD_RELAY_PIN,
-    STATUS_LED_PIN,
-    CONNECTION_LOST_LED_PIN,
-    NRF_IRQ_PIN,
-    LEFT_LIMIT_SW,
-    RIGHT_LIMIT_SW
-  };
-
-  const uint8_t pins_mode[] PROGMEM = {
-    OUTPUT, OUTPUT, OUTPUT, OUTPUT, OUTPUT, OUTPUT, INPUT, INPUT, INPUT
+  const uint8_t pins[][2] PROGMEM = {
+    {LEFT_RELAY_PIN, OUTPUT},
+    {RIGHT_RELAY_PIN, OUTPUT},
+    {FORWARD_RELAY_PIN, OUTPUT},
+    {BACKWORD_RELAY_PIN, OUTPUT},
+    {STATUS_LED_PIN, OUTPUT},
+    {CONNECTION_LOST_LED_PIN, OUTPUT},
+    {NRF_IRQ_PIN, INPUT},
+    {LEFT_LIMIT_SW, INPUT},
+    {RIGHT_LIMIT_SW, INPUT}
   };
 #endif
 
@@ -186,11 +182,10 @@ void setup()
   //inizilizzazione I/0
   //////////////////////////////////////////////////////////////////////
   
-  for(int i = 0; i < (int)(sizeof(pins)/(sizeof(pins[0]))); i++)
-  {
-    pinMode(pgm_read_byte(&pins[i]), pgm_read_byte(&pins_mode[i]));
-    if(pins_mode[i] == OUTPUT) {
-      digitalWrite(pins[i], LOW);
+  for(int i = 0; i < (int)(sizeof(pins)/(sizeof(pins[0]))); i++) {
+    pinMode(pgm_read_byte(&pins[i][0]), pgm_read_byte(&pins[i][1]));
+    if(pgm_read_byte(&pins[i][1]) == OUTPUT) {
+      digitalWrite(pgm_read_byte(&pins[i][0]), LOW);
     }
   }
 
@@ -314,12 +309,14 @@ void loop()
 
     RX_loop();  
 
+    //#if !defined(ENABLE_LIMIT_SW_IRQ)
     //se si attivano i fine corsa
-    if(digitalRead(LEFT_LIMIT_SW) && packet.sw1)
+    if(!digitalRead(LEFT_LIMIT_SW) && packet.sw3)
       digitalWrite(LEFT_RELAY_PIN, LOW);
 
-    if(digitalRead(RIGHT_LIMIT_SW) && packet.sw2)
+    if(!digitalRead(RIGHT_LIMIT_SW) && packet.sw4)
       digitalWrite(RIGHT_RELAY_PIN, LOW);
+    //#endif
 
   #endif
 }
@@ -386,11 +383,16 @@ void RX_loop()
 {
   static uint8_t pipe;
   static uint8_t bytes;
+  static boolean packetAvailable;
+  static uint8_t buffer[32];
   //disabilito gli interrupt per evitare problemi
   //noInterrupts();
 
+  packetAvailable = radio.available(&pipe);
+
+
   //se è passato 1s dall'ultimo pacchetto ricevuto
-  if(millis() - lastPacket_recived_time >= 1000) 
+  if(!packetAvailable && (millis() - lastPacket_recived_time >= 1000)) 
   {
     //spengo tutti i relays
     digitalWrite(LEFT_RELAY_PIN,     LOW);
@@ -409,14 +411,12 @@ void RX_loop()
       Serial.println(F("Waiting for transmitter connection"));
     }
       
-    
     while(true) {
       if(radio.available(&pipe)) {
         if(pipe == 1) {
           break;
         }
         else {
-          static uint8_t buffer[32];
           bytes = radio.getPayloadSize();
           radio.read(&buffer, bytes);
         }
@@ -433,9 +433,9 @@ void RX_loop()
     digitalWrite(CONNECTION_LOST_LED_PIN, LOW);
 
   }
-  else if(radio.available(&pipe) && pipe == 1)
-  {
+  else if(packetAvailable && pipe == 1) {
     lastPacket_recived_time = millis();
+    //Serial.print("start: ");Serial.println(lastPacket_recived_time);
     bytes = radio.getPayloadSize();         // get the size of the payload
     radio.read(&packet, bytes);             // fetch payload from FIFO
   
@@ -450,13 +450,14 @@ void RX_loop()
         packet.sw4 = 0;
     }
       
+    digitalWrite(FORWARD_RELAY_PIN,  packet.sw1);
+    digitalWrite(BACKWORD_RELAY_PIN, packet.sw2);
     
     //I fine corsa sono normalmente aperti => ho sempre 1
     //se il fine corsa è chiuso ho 0 => setto il pin LOW
-    digitalWrite(LEFT_RELAY_PIN,   (digitalRead(LEFT_LIMIT_SW) ?  packet.sw1  : LOW));
-    digitalWrite(RIGHT_RELAY_PIN,  (digitalRead(RIGHT_LIMIT_SW) ? packet.sw2  : LOW));
-    digitalWrite(FORWARD_RELAY_PIN,  packet.sw3);
-    digitalWrite(BACKWORD_RELAY_PIN, packet.sw4);
+    digitalWrite(LEFT_RELAY_PIN,   (digitalRead(LEFT_LIMIT_SW) ?  packet.sw3  : LOW));
+    digitalWrite(RIGHT_RELAY_PIN,  (digitalRead(RIGHT_LIMIT_SW) ? packet.sw4  : LOW));
+    
 
     if(LED_Animations.selectedAnimation != NO_ERROR_AND_CONNECTED_LED_SEQUENZE) {
       setLED_Animation(NO_ERROR_AND_CONNECTED_LED_SEQUENZE);
@@ -471,9 +472,15 @@ void RX_loop()
       Serial.print(F(" sw3 "));   Serial.print(packet.sw3);
       Serial.print(F(" sw4 "));   Serial.println(packet.sw4);
     }
+    
+    //Serial.print("end: "); Serial.println(lastPacket_recived_time);
+  }
+  else if(packetAvailable){
+    bytes = radio.getPayloadSize();
+    radio.read(&buffer, bytes);
   }
   else {
-    delay(1);
+    delay(10);
   }
 }
 #endif
