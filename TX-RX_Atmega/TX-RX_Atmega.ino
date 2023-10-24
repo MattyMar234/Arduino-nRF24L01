@@ -109,6 +109,9 @@
   };
 #endif
 
+//funzione per far ripartire il codice da capo (software reset)
+void(* resetFunc) (void) = 0;
+
 
 const uint8_t NRF_WrError_sequenze[] = {1, 1, 0, 0, 1, 1, 0, 0};
 const uint8_t NRF_error_sequenze[]   = {1, 0, 1, 0, 0, 0, 0};
@@ -342,6 +345,11 @@ ISR(TIMER1_COMPA_vect)
     if(millis() - lastPacket_sended_time  >= 1000) {
       setLED_Animation(NRF_CONNECTION_LOST_LED_SEQUENZE);
     }
+
+    //se sono passati 10s dall'ultimo pacchetto inviato => software reset
+    if(millis() - lastPacket_sended_time  >= 10000) {
+      resetFunc();
+    }
   }
 #else
   void NRF_PacketReadyIRQ() 
@@ -420,6 +428,10 @@ void RX_loop()
           bytes = radio.getPayloadSize();
           radio.read(&buffer, bytes);
         }
+      }
+      //se non ricevo un nuovo pacchetto dopo 4 secondi => software reset
+      if(millis() - lastPacket_recived_time => 4000) {
+        resetFunc(); //software reset
       }
     }
 
