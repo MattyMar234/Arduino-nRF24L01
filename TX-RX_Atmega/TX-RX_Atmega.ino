@@ -308,6 +308,11 @@ void loop()
       timerPacket = millis();
       TX_loop();
     }
+
+    //se sono passati 10s dall'ultimo pacchetto inviato => software reset
+    if(millis() - lastPacket_sended_time  >= 10000) {
+      resetFunc();
+    }
   #else
 
     RX_loop();  
@@ -344,11 +349,6 @@ ISR(TIMER1_COMPA_vect)
     //se è passato 1s dall'ultimo pacchetto ricevuto
     if(millis() - lastPacket_sended_time  >= 1000) {
       setLED_Animation(NRF_CONNECTION_LOST_LED_SEQUENZE);
-    }
-
-    //se sono passati 10s dall'ultimo pacchetto inviato => software reset
-    if(millis() - lastPacket_sended_time  >= 10000) {
-      resetFunc();
     }
   }
 #else
@@ -430,7 +430,7 @@ void RX_loop()
         }
       }
       //se non ricevo un nuovo pacchetto dopo 4 secondi => software reset
-      if(millis() - lastPacket_recived_time => 4000) {
+      if(millis() - lastPacket_recived_time >= 4000) {
         resetFunc(); //software reset
       }
     }
